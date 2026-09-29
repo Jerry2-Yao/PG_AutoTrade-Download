@@ -464,7 +464,7 @@ done = [e for e in ev if e["eventType"] == "STATE_TRANSITION" and e.get("nextSta
 | 回放測試 | `ObserverReplayTest` | 同上 | 把一整段錄製的影格依序餵給觀察器,要重建出正確的交換次數 |
 | 模組邊界 | `ModuleBoundaryTest` | 無 | 擋下違規 import |
 
-目前共 202 個測試(core 163、recognizer 39)。
+目前共 206 個測試(core 166、recognizer 40)。
 
 ### 11.2 開發方式:先寫會失敗的測試(TDD)
 
