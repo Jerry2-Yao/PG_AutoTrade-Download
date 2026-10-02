@@ -1,7 +1,7 @@
 # 交換小幫手 開發技術手冊
 
 > 對象:想看懂、維護、修改這個專案的開發者(包含未來的自己)。
-> 版本:依 v1.0.8(2026-09-29)的程式內容撰寫。程式改了,這份手冊也要跟著改。
+> 版本:依 v1.0.11(2026-10-02)的程式內容撰寫。程式改了,這份手冊也要跟著改。
 > 原始碼目前沒有公開;文中提到的檔案路徑(例如 `core/src/...`、`docs/...`)都是指原始碼專案裡的位置。
 
 ---
@@ -171,7 +171,7 @@ app/src/main/kotlin/com/jerry/pgautotrade/app/
   capture/ScreenCaptureService.kt← MediaProjection 前景服務
   research/ResearchAccessibilityService.kt ← 協助工具服務(懸浮鈕、手勢、研究面板)
   auto/AutoTradeController.kt    ← 自動交換主迴圈(把上面全部串起來)
-  auto/FloatingControlOverlay.kt ← 懸浮鈕
+  auto/FloatingControlOverlay.kt ← 懸浮鈕(待命「開始」按住 3 秒收起:按下輕震 + 旁邊倒數,收起時重震兩下 + 提示)
   auto/TapFlashOverlay.kt        ← 點擊紅點
   gesture/AccessibilityGestureDispatcher.kt ← 真正呼叫 dispatchGesture
   logging/AppAudit.kt            ← 日誌檔位置
@@ -258,13 +258,16 @@ app/src/main/kotlin/com/jerry/pgautotrade/app/
 | PokemonSelected(明細,下一步) | 下一步 pHash + **下一步是亮綠**(沒被視窗蓋住) |
 | TradeConfirmDialog(極巨化/超級進化確認視窗) | 背後下一步**變暗** + 白色視窗裡找得到綠色 YES |
 | WaitingPartnerSelection(等對方選) | 交換圖示 + 沒有確定鈕 + 自己的面板 |
-| ConfirmReady(可按確定) | 交換圖示 + 確定鈕綠色 + 畫面沒變暗 |
+| ConfirmReady(可按確定) | 交換圖示 + 確定鈕綠色 + 畫面沒變暗 + **左上鈕是亮的** |
+| ConfirmPending(已按確定、等伺服器) | 交換圖示 + 確定鈕綠色 + 畫面沒變暗 + **左上鈕變灰** |
 | LocalConfirmedWaitingRemote(已確定等對方) | 交換圖示 + 取消鈕橘色 + 沒變暗 |
 | TradeAnimation(交換動畫) | 兩個角落是深藍 |
 | TradeResult(結果頁) | 選單鈕 + 關閉鈕 pHash + 不是列表 |
 | RecordPopup(XXL/XXS 新紀錄) | 下方兩點青藍 + X 鈕淺色圓面 |
 | MegaLevelPopup(新超級等級登場) | 下方深青遮罩兩點 + OK 綠色漸層左右兩段 |
-| DailyLimitDialog(本日上限) | 漸層背景兩點 + 白色視窗高約 0.53×寬 + 綠色按鈕 |
+| DailyLimitDialog(本日上限) | 漸層背景兩點 + 白色視窗高約 0.53×寬 + 綠色按鈕 + 上限文字 pHash |
+| TradeUnavailableDialog(暫時無法交換) | 同上版面 + 「暫時無法使用交換功能」文字 pHash |
+| PartnerLeftDialog(朋友退出) | 同上背景 + 白框高約 0.60×寬 + 「朋友退出本次交換」文字 pHash |
 
 各畫面的實測座標、顏色、門檻理由,全部在 `docs/PoGo_Screen_Recognition_Guide.md`。
 
@@ -281,6 +284,9 @@ flowchart TD
   WPE --> PS
   FP --> DL["本日上限訊息<br/>DailyLimitDialog<br/>正常結束,不按 OK"]
   WPE --> DL
+  FP --> TU["暫時無法交換訊息<br/>TradeUnavailableDialog"]
+  WPE --> TU
+  TU -->|"按 OK"| FP
   PS -->|"按 第一隻"| PD["明細 下一步<br/>PokemonSelected"]
   PD -->|"按 下一步"| TCD["交換確認視窗(極巨化/超級進化)<br/>TradeConfirmDialog"]
   TCD -->|"按 YES"| WPS["等對方選<br/>WaitingPartnerSelection"]
@@ -288,6 +294,12 @@ flowchart TD
   PD -->|"按 下一步"| WPS
   PD -->|"按 下一步"| CR
   WPS --> CR
+  CR -->|"按 確定"| CP["已按確定、等伺服器(左上鈕變灰)<br/>ConfirmPending"]
+  WPS --> CP
+  CP --> LC
+  CP --> TA
+  CP -->|"被取消(已取消)→ 再按"| CR
+  LC -->|"被取消 → 再按"| CR
   CR -->|"按 確定"| LC["已確定等對方<br/>LocalConfirmedWaitingRemote"]
   CR -->|"按 確定"| TA["交換動畫<br/>TradeAnimation"]
   LC --> TA
@@ -321,11 +333,13 @@ flowchart TD
 
 | 動作 | 從哪個畫面 | 點擊位置 | 預期轉到 | 備註 |
 |---|---|---|---|---|
-| TAP_LOCAL_TRADE | 好友頁 | 按鈕列第 2 顆(結構定位) | 等待對方加入 / 列表 / 本日上限 | |
+| TAP_LOCAL_TRADE | 好友頁 | 按鈕列第 2 顆(結構定位) | 等待對方加入 / 列表 / 本日上限 / 暫時無法交換 | |
 | TAP_FIRST_POKEMON | 列表 | 左上第一格 | 明細 | 第一格空白連續 2 次 → 結束「寶可夢已換完」 |
 | TAP_NEXT | 明細 | 下一步中心 | 確認視窗 / 等對方選 / 確定 | |
 | TAP_DIALOG_YES | 確認視窗 | 找到的綠色 YES 中心 | 等對方選 / 確定 | |
-| TAP_CONFIRM | 可按確定 | 確定鈕(中線錨點) | 已確定等對方 / 動畫 | **唯一不可逆**:只收 HIGH、另一個只收 HIGH 的驗證器也要同意 |
+| TAP_UNAVAILABLE_OK | 暫時無法交換訊息(交換中任何一步) | 找到的綠色 OK 中心(與 YES 同一種找法) | 好友頁 | 等效果中的動作作廢,不算非預期 |
+| TAP_PARTNER_LEFT_OK | 朋友退出訊息(交換中任何一步) | 找到的綠色 OK 中心 | 好友頁 | 等效果中的動作作廢,不算非預期 |
+| TAP_CONFIRM | 可按確定 | 確定鈕(中線錨點) | 等伺服器(左上變灰)/ 已確定等對方 / 動畫 | **唯一不可逆**:只收 HIGH、另一個只收 HIGH 的驗證器也要同意 |
 | TAP_CLOSE_RECORD | 新紀錄提示 | 下方中央 X(與結果頁 X 同位置) | 結果頁 / 好友頁 / 新超級等級提示 | |
 | TAP_MEGA_LEVEL_OK | 新超級等級提示 | 綠色 OK 中心(比結果頁 X 高約 77px) | 結果頁 / 好友頁 / 新紀錄提示 | |
 | TAP_CLOSE_RESULT | 結果頁 | 下方中央 X | 好友頁 / 新紀錄提示 / 新超級等級提示 | |
@@ -337,8 +351,10 @@ flowchart TD
 3. 同時只有一個「待驗證的動作」(`pending`)。點完之後,要看到**比點擊更新的影格**轉到預期狀態,才算有效。
 4. 30 秒內沒轉到預期狀態 → `TRANSITION_TIMEOUT` 停止(`automation.actionEffectDeadlineMs`)。
 5. **重按**(只有兩種,其他動作一律不重試):
-   - 確定:按完 2 秒仍是 HIGH 綠色確定、且期間**從沒看過**橘色取消/動畫/結果頁 → 重按,最多 5 次。
+   - 確定:按完 2 秒仍是 HIGH 綠色確定(**左上鈕是亮的**)、且期間**從沒看過**左上變灰/橘色取消/動畫/結果頁 → 重按,最多 5 次。
      重按前一刻安全閘發現畫面已變 → 視為前一次已生效,不停止。(重按橘色取消會**撤回確定**,所以規則很嚴)
+     v1.0.10:伺服器慢時遊戲已收到確定、按鈕還綠著但左上變灰;舊版在這時重按,可能落地時剛好變橘色 → 撤回確定(2026-10-02 實機;之後發現遊戲也會自己取消確定,原因未完全確定)。
+   - 確定被遊戲取消(變灰或橘色之後回到亮的綠色確定,畫面有「已取消」):當成新的確定畫面,照第一次的條件再按,一次交換最多 3 次(v1.0.11)。
    - 交換後的提示(新紀錄、新超級等級):按完 2 秒仍是同一種提示 → 再按,兩種合計一次交換最多 3 次。
 6. 完成 `maxTrades` 次(回到好友頁)→ `Finished(REACHED_TARGET)`。
 
@@ -464,7 +480,7 @@ done = [e for e in ev if e["eventType"] == "STATE_TRANSITION" and e.get("nextSta
 | 回放測試 | `ObserverReplayTest` | 同上 | 把一整段錄製的影格依序餵給觀察器,要重建出正確的交換次數 |
 | 模組邊界 | `ModuleBoundaryTest` | 無 | 擋下違規 import |
 
-目前共 206 個測試(core 166、recognizer 40)。
+目前共 220 個測試(core 176、recognizer 44)。
 
 ### 11.2 開發方式:先寫會失敗的測試(TDD)
 
@@ -571,7 +587,7 @@ research_data/
 |---|---|
 | 解析度 | 只驗證寬 1080 |
 | Android 版本 | 11 以上;10 不支援 |
-| 不讀文字 | 同樣版面的其他訊息會被當成已知畫面(例如本日上限的判斷只看版面) |
+| 不讀文字 | 只比對文字區的形狀(pHash),不辨識字;同版面的新訊息會認不出 → 30 秒後停止 |
 | 未處理的畫面 | 交換後的其他提示(第二階段)、星沙不足、特殊交換等 → 會安全停止 |
 | 雙機通訊 | 第一階段刻意不做;兩台各自判斷 |
 | 只換第一隻 | 使用者用遊戲內篩選決定要換的寶可夢 |
