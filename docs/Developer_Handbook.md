@@ -1,7 +1,7 @@
 # 交換小幫手 開發技術手冊
 
 > 對象:想看懂、維護、修改這個專案的開發者(包含未來的自己)。
-> 版本:依 v1.0.11(2026-10-02)的程式內容撰寫。程式改了,這份手冊也要跟著改。
+> 版本:依 v1.0.13(2026-10-08)的程式內容撰寫。程式改了,這份手冊也要跟著改。
 > 原始碼目前沒有公開;文中提到的檔案路徑(例如 `core/src/...`、`docs/...`)都是指原始碼專案裡的位置。
 
 ---
@@ -175,6 +175,7 @@ app/src/main/kotlin/com/jerry/pgautotrade/app/
   auto/TapFlashOverlay.kt        ← 點擊紅點
   gesture/AccessibilityGestureDispatcher.kt ← 真正呼叫 dispatchGesture
   logging/AppAudit.kt            ← 日誌檔位置
+  setup/SystemSettingsLauncher.kt← 首頁跳系統設定(協助工具、省電白名單;各步都有退路)
   ui/                            ← Compose 畫面(首頁、設定、開發工具)
   research/ResearchController.kt、ResearchOverlay.kt ← 研究面板(錄製語料用)
 ```
@@ -366,7 +367,11 @@ flowchart TD
 | `FINISHED_NO_MORE_POKEMON` | 綠 ✓ | 列表第一格空白 |
 | `FINISHED_DAILY_LIMIT` | 綠 ✓ | 本日交換上限訊息 |
 | `USER_STOPPED` | 藍「開始」 | 使用者按懸浮鈕停止 |
-| `SAFETY_STOPPED` | 橘「!」 | 任何安全停止(`StopReason`,首頁「上次結果」有中文原因) |
+| `SAFETY_STOPPED` | 橘「!」 | 任何安全停止(`StopReason`,首頁「上次結果」有中文原因;有截圖時另有「查看停止時的畫面」) |
+
+安全停止時 `AutoTradeController.stop()` 把診斷截圖檔名存進 `RunSummary.screenshotFile`;首頁用 `stopScreenshot()`(只有 `SAFETY_STOPPED` 才回傳)
+找 `diagnostics/` 裡的 png,檔案還在才顯示按鈕(15 天保存期限過了就不顯示)。懸浮鈕旁的短說明會多一行「回 App 看畫面」。
+目的:讓使用者自己看出是手機的問題(例如 MIUI 高溫提醒蓋住遊戲 → `UNKNOWN_SCREEN`),不必靠開發者讀日誌。
 
 ---
 
